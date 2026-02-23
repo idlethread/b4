@@ -12,6 +12,8 @@ import sys
 
 from typing import Any, Optional, Sequence, Union
 
+import b4.integrate as integrate
+
 logger = b4.logger
 
 
@@ -116,6 +118,10 @@ def cmd_review(cmdargs: argparse.Namespace) -> None:
 def cmd_bugs(cmdargs: argparse.Namespace) -> None:
     import b4.bugs
     b4.bugs.main(cmdargs)
+
+
+def cmd_integrate(cmdargs: argparse.Namespace) -> None:
+    integrate.run_integrate(cmdargs)
 
 
 def cmd_pr(cmdargs: argparse.Namespace) -> None:
@@ -293,6 +299,31 @@ def setup_parser() -> argparse.ArgumentParser:
         action='store_true', default=False,
         help='Output in JSON format')
 
+
+    # b4 integrate
+    sp_integrate = subparsers.add_parser('integrate',
+         help='Integrate patch series into git branches',
+         description=('Integrate multiple patch series into git branches using b4 shazam.\n\n'
+                      'The configuration file is a YAML mapping of branch names to lists of\n'
+                      'message-ids. Each branch is created independently, and failures in one\n'
+                      'branch do not affect others.'),
+         epilog=(
+                 'Example YAML file:\n\n'
+                 '  branch-a:\n'
+                 '    - <msgid1>\n'
+                 '    - <msgid2>\n'
+                 '  branch-b:\n'
+                 '    - <msgid3>\n\n'
+                 'Example usage:\n'
+                 '  b4 integrate series.yaml\n'
+                 '  b4 integrate series.yaml --update-config\n'
+    	 ),
+    )
+
+    sp_integrate.add_argument( 'yaml_file', help='YAML file mapping branch names to message-ids')
+    sp_integrate.add_argument( '--base', metavar='REF', default='HEAD', help='Base git ref for new branches (default: HEAD)')
+    sp_integrate.add_argument( '--update-config', action='store_true', help='Update YAML file if newer patch revisions are detected')
+    sp_integrate.set_defaults(func=cmd_integrate)
 
     # b4 pr
     sp_pr = subparsers.add_parser('pr', help='Fetch a pull request found in a message ID')
