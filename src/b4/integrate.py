@@ -98,26 +98,77 @@ def integrate_branch(branch, msgids, base, parent_args):
     resolved = []
 
     for msgid in msgids:
-        run_shazam_for_msgid(msgid)
-	# Needed when latest msgid is different from original
-        resolved.append(msgid)
+        while True:
+            try:
+                b4.logger.info(f'Applying {msgid}')
+                run_shazam_for_msgid(msgid)
+                resolved.append(msgid)
+                break  # success → next msgid
+
+            except RuntimeError:
+                action = handle_shazam_failure(msgid)
+
+                if action == "continue":
+                    resolved.append(msgid)
+                    break  # move to next msgid WITHOUT retrying
+
+                elif action == "retry":
+                    continue  # retry same msgid
+
+                elif action == "skip":
+                    break  # move to next msgid WITHOUT appending
+
+                elif action == "abort":
+                    raise
 
     return resolved
 
-
 def run_shazam_for_msgid(msgid):
-    # Reuse the real parser to build a valid namespace
     parser = command.setup_parser()
-
     shazam_args = parser.parse_args(['shazam', '-l', msgid])
 
     try:
         b4.logger.info(f'Applying {msgid}')
-        # This ensures subcmd, config, and everything else is populated
         command.cmd_shazam(shazam_args)
     except SystemExit as e:
         if e.code not in (0, None):
             raise RuntimeError(f'shazam failed for {msgid}')
+
+
+def handle_shazam_failure(msgid):
+    b4.logger.error(f'Shazam failed for {msgid}')
+    b4.logger.error('Repository left in current state.')
+    b4.logger.error('You may resolve conflicts manually.')
+
+    while True:
+        print()
+        print("Options:")
+        print("  [c] Continue after fixing manually")
+        print("  [r] Retry this message-id")
+        print("  [s] Skip this message-id")
+        print("  [a] Abort branch")
+        choice = input("> ").strip().lower()
+
+        if choice == 'c':
+            if git_am_in_progress():
+                print("git am still in progress. Finish it first.")
+            else:
+                return "continue"
+
+        elif choice == 'r':
+            return "retry"
+
+        elif choice == 's':
+            b4.logger.warning(f"Skipping {msgid}")
+            return "skip"
+
+        elif choice == 'a':
+            return "abort"
+
+
+def git_am_in_progress():
+    gitdir = b4.git_get_command_lines(None, ['rev-parse', '--git-dir'])[0].strip()
+    return os.path.exists(os.path.join(gitdir, 'rebase-apply'))
 
 
 def write_updated_config(path, old_cfg, new_cfg):
