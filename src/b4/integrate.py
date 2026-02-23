@@ -4,7 +4,7 @@
 #
 
 import os
-import yaml
+from ruamel.yaml import YAML
 import traceback
 import b4
 import b4.command as command
@@ -55,12 +55,16 @@ def run_integrate(args):
 
 
 def load_config(path):
+    yaml = YAML()
+    yaml.preserve_quotes = True
+
     with open(path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f) or {}
+        data = yaml.load(f)
 
     if not isinstance(data, dict):
         raise RuntimeError('Top-level YAML must be a mapping')
 
+    # Validate structure (but do not destroy comments)
     for k, v in data.items():
         if not isinstance(v, list):
             raise RuntimeError(f'Branch {k} must map to a list of message-ids')
@@ -171,14 +175,24 @@ def git_am_in_progress():
     return os.path.exists(os.path.join(gitdir, 'rebase-apply'))
 
 
-def write_updated_config(path, old_cfg, new_cfg):
-    merged = {}
-    for branch, old_ids in old_cfg.items():
-        merged[branch] = new_cfg.get(branch, old_ids)
+def write_updated_config(path, yaml_data, new_cfg):
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.indent(mapping=2, sequence=4, offset=2)
+
+    # Update only the branch message-id lists in-place
+    for branch, new_ids in new_cfg.items():
+        if branch in yaml_data:
+            # Clear existing list but keep YAML node structure
+            yaml_data[branch].clear()
+
+            # Re-add updated message-ids
+            for msgid in new_ids:
+                yaml_data[branch].append(msgid)
 
     tmp = f'{path}.new'
     with open(tmp, 'w', encoding='utf-8') as f:
-        yaml.safe_dump(merged, f, sort_keys=False)
+        yaml.dump(yaml_data, f)
 
     os.replace(tmp, path)
     b4.logger.info(f'Updated {path}')
