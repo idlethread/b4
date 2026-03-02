@@ -14,15 +14,26 @@ class SkipBranch(Exception):
     pass
 
 
+def resolve_git_ref(ref):
+    try:
+        resolved = b4.git_get_command_lines(None, ['rev-parse', '--verify', ref])[0].strip()
+        return resolved
+    except Exception:
+        raise RuntimeError(f'Invalid git ref: {ref}')
+
+
 def run_integrate(args):
     yaml_path = args.yaml_file
-    base = args.base
     update_config = args.update_config
 
     cfg = load_config(yaml_path)
     b4.logger.info(f'Loaded config: {cfg}')
 
     orig_branch, orig_commit = git_snapshot()
+    if args.base:
+        base = resolve_git_ref(args.base)
+    else:
+        base = orig_commit
 
     results = {
         'success': [],

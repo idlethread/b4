@@ -254,7 +254,7 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     sp_integrate.add_argument( 'yaml_file', help='YAML file mapping branch names to message-ids')
-    sp_integrate.add_argument( '--base', metavar='REF', default='HEAD', help='Base git ref for new branches (default: HEAD)')
+    sp_integrate.add_argument( '--base', metavar='REF', default=None, help='Git SHA, tag, or ref to base all integration branches on (default: current HEAD)')
     sp_integrate.add_argument( '--update-config', action='store_true', help='Update YAML file if newer patch revisions are detected')
     sp_integrate.set_defaults(func=cmd_integrate)
 
