@@ -29,9 +29,10 @@ _shazam_parser: Optional[argparse.ArgumentParser] = None
 
 
 class IntegrationResults(TypedDict):
-    success: List[str]           # branches built cleanly
-    skipped: List[str]           # branches with no message-ids
-    failed: Dict[str, str]       # branch -> failure reason
+    success: List[str]               # branches applied without any manual intervention
+    conflicts_resolved: List[str]    # branches that needed a manual conflict resolution
+    skipped: Dict[str, str]          # branch -> reason (e.g. "No message-ids specified")
+    failed: Dict[str, str]           # branch -> failure reason
 
 
 class SkipBranch(Exception):
@@ -50,7 +51,8 @@ def run_integrate(cmdargs: argparse.Namespace) -> None:
 
     results: IntegrationResults = {
         'success': [],
-        'skipped': [],
+        'conflicts_resolved': [],
+        'skipped': {},
         'failed': {},
     }
 
@@ -59,12 +61,15 @@ def run_integrate(cmdargs: argparse.Namespace) -> None:
     for branch, msgids in cfg.items():
         logger.info('Processing branch %s', branch)
         try:
-            new_ids = integrate_branch(branch, msgids, base, cmdargs)
-            results['success'].append(branch)
+            new_ids, had_conflict = integrate_branch(branch, msgids, base, cmdargs)
+            if had_conflict:
+                results['conflicts_resolved'].append(branch)
+            else:
+                results['success'].append(branch)
             updated_cfg[branch] = new_ids
         except SkipBranch as ex:
             logger.warning('Skipping %s: %s', branch, ex)
-            results['skipped'].append(branch)
+            results['skipped'][branch] = str(ex)
         except Exception as ex:  # one bad branch must not abort the whole run
             logger.error('Failed %s: %s', branch, ex)
             logger.debug(traceback.format_exc())
@@ -118,7 +123,7 @@ def git_restore(branch: str, commit: str) -> None:
 
 
 def integrate_branch(branch: str, msgids: List[str], base: str,
-                     cmdargs: argparse.Namespace) -> List[str]:
+                     cmdargs: argparse.Namespace) -> Tuple[List[str], bool]:
     if not msgids:
         raise SkipBranch('No message-ids specified')
 
@@ -127,6 +132,7 @@ def integrate_branch(branch: str, msgids: List[str], base: str,
 
     resolved: List[str] = []
     update_config = getattr(cmdargs, 'update_config', False)
+    had_conflict = False
 
     for msgid in msgids:
         while True:
@@ -147,6 +153,7 @@ def integrate_branch(branch: str, msgids: List[str], base: str,
 
                 if action == 'continue':
                     # Conflict resolved by hand; record the msgid and advance.
+                    had_conflict = True
                     resolved.append(msgid)
                     break
                 if action == 'retry':
@@ -156,7 +163,7 @@ def integrate_branch(branch: str, msgids: List[str], base: str,
                 # action == 'abort': bubble up so the branch lands in 'failed'.
                 raise
 
-    return resolved
+    return resolved, had_conflict
 
 
 def resolve_latest_msgid(msgid: str) -> str:
@@ -262,16 +269,63 @@ def write_updated_config(path: Union[str, Path], old_cfg: Dict[str, List[str]],
 
 
 def print_summary(results: IntegrationResults) -> None:
-    print('\nIntegration summary')
+    """Print a table summarising every branch processed in this run.
 
-    print(f'Successful branches: {len(results["success"])}')
+    Columns: Branch | Status | Notes
+    Status values:
+      merged            – applied cleanly, no intervention required
+      merged (conflict) – applied after a manual conflict resolution
+      skipped           – not processed (reason shown in Notes)
+      FAILED            – apply failed and was not recovered
+
+    The table is padded to the widest branch name so all columns line up.
+    """
+    # Collect all rows so we can compute column widths first.
+    rows: List[Tuple[str, str, str]] = []  # (branch, status, notes)
     for branch in results['success']:
-        print(f'  ✓ {branch}')
-
-    print(f'Skipped branches: {len(results["skipped"])}')
-    for branch in results['skipped']:
-        print(f'  - {branch}')
-
-    print(f'Failed branches: {len(results["failed"])}')
+        rows.append((branch, 'merged', ''))
+    for branch in results['conflicts_resolved']:
+        rows.append((branch, 'merged (conflict)', 'manual conflict resolution'))
+    for branch, reason in results['skipped'].items():
+        rows.append((branch, 'skipped', reason))
     for branch, err in results['failed'].items():
-        print(f'  ✗ {branch}: {err}')
+        rows.append((branch, 'FAILED', err))
+
+    if not rows:
+        print('\nNo branches processed.')
+        return
+
+    COL_BRANCH = 'Branch'
+    COL_STATUS = 'Status'
+    COL_NOTES  = 'Notes'
+
+    w_branch = max(len(COL_BRANCH), *(len(r[0]) for r in rows))
+    w_status = max(len(COL_STATUS), *(len(r[1]) for r in rows))
+    # Notes column: cap at 60 chars to keep the table readable in a terminal.
+    MAX_NOTES = 60
+    w_notes  = min(MAX_NOTES, max(len(COL_NOTES), *(len(r[2]) for r in rows)))
+
+    def sep() -> str:
+        return f'+{"-" * (w_branch + 2)}+{"-" * (w_status + 2)}+{"-" * (w_notes + 2)}+'
+
+    def row(branch: str, status: str, notes: str) -> str:
+        notes_trunc = notes[:w_notes] if len(notes) > w_notes else notes
+        return (
+            f'| {branch:<{w_branch}} '
+            f'| {status:<{w_status}} '
+            f'| {notes_trunc:<{w_notes}} |'
+        )
+
+    total = len(rows)
+    n_ok  = len(results['success']) + len(results['conflicts_resolved'])
+    n_skip = len(results['skipped'])
+    n_fail = len(results['failed'])
+
+    print(f'\nIntegration summary  ({total} branch{"es" if total != 1 else ""}: '
+          f'{n_ok} merged, {n_skip} skipped, {n_fail} failed)')
+    print(sep())
+    print(row(COL_BRANCH, COL_STATUS, COL_NOTES))
+    print(sep())
+    for r in rows:
+        print(row(*r))
+    print(sep())
