@@ -13,7 +13,7 @@ Work with code submissions in a public-inbox archive
 
 SYNOPSIS
 --------
-b4 {mbox,am,shazam,pr,diff,ty,kr,dig,review,prep,send,trailers} [options]
+b4 {mbox,am,shazam,pr,diff,ty,kr,dig,integrate,review,prep,send,trailers} [options]
 
 DESCRIPTION
 -----------
@@ -38,6 +38,7 @@ Maintainer-oriented:
 * *ty*: Create templated replies for processed patches and pull requests
 * *diff*: Show range-diff style diffs between patch versions
 * *dig*: Find the mailing list submission for a given commit
+* *integrate*: Batch-build integration branches from tracked series
 * *review*: TUI-based patch review workflow (alpha)
 * *kr*: (STUB) Operate on patatt-compatible keyrings
 
@@ -264,6 +265,48 @@ For options and their descriptions, see ``b4 dig --help``.
 
 ``b4 dig -m /tmp/thread.mbx [commit]``
   Find the submission and save the full thread as an mbox file.
+
+b4 integrate
+~~~~~~~~~~~~
+This command rebuilds a set of git branches from lists of in-flight patch
+series tracked by message-id, applying each series with ``b4 shazam``. It
+is aimed at maintainers who assemble an integration tree out of several
+series that are still being revised on the mailing list.
+
+The configuration is a YAML file mapping each branch name to an ordered
+list of message-ids. For each branch, b4 checks out the base ref (``HEAD``
+by default, or ``--base``), creates the branch with ``git checkout -B``,
+and applies each message-id in order. Branches are built independently, so
+a failure in one does not affect the others.
+
+The working tree is treated as scratch space: b4 records the current branch
+and commit before starting and always restores that snapshot after each
+branch (aborting any in-progress ``git am``, checking out the original ref,
+``git reset --hard``, and ``git clean -fd``). Only run it in a repository
+whose working tree you are willing to have reset.
+
+On an apply failure, b4 offers an interactive menu to continue (after a
+manual fix), retry, skip the message-id, or abort the branch. In a
+non-interactive run the branch is aborted instead of blocking on input.
+
+With ``--update-config``, b4 looks for a newer revision of each series on
+the public-inbox server after it applies and rewrites the YAML file in
+place with any newer message-ids.
+
+For options and their descriptions, see ``b4 integrate --help``.
+
+*Examples*
+
+``b4 integrate series.yaml``
+  Rebuild every branch described in ``series.yaml`` on top of the current
+  ``HEAD``.
+
+``b4 integrate series.yaml --base v6.14-rc1``
+  Same, but base every branch on the ``v6.14-rc1`` tag instead of ``HEAD``.
+
+``b4 integrate series.yaml --update-config``
+  Rebuild the branches and rewrite ``series.yaml`` to point at the latest
+  revisions of each series.
 
 b4 kr
 ~~~~~

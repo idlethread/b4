@@ -1,6 +1,39 @@
 Release notes
 =============
 
+.. _release-0.16:
+
+v0.16
+-----
+
+``b4 integrate`` — batch-build integration branches
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This release adds ``b4 integrate``, a subcommand for maintainers who
+assemble an integration tree out of several in-flight patch series. You
+describe the branches you want in a YAML file that maps each branch name
+to an ordered list of message-ids, and b4 rebuilds every branch by
+applying its series through ``b4 shazam``.
+
+Highlights:
+
+- **One command, many branches** — each branch is built independently
+  from a shared base ref (``--base``, default ``HEAD``), so a failure in
+  one branch does not stop the others.
+- **Disposable working tree** — b4 snapshots the current branch and
+  commit up front and always restores it after each branch, aborting any
+  in-progress ``git am`` and cleaning the tree.
+- **Interactive conflict handling** — on an apply failure you can
+  continue after a manual fix, retry, skip the message-id, or abort the
+  branch; non-interactive runs abort the branch rather than blocking.
+- **Revision tracking** — with ``--update-config`` b4 walks the lore
+  thread forward after each successful apply and rewrites the YAML file
+  in place with the latest revision's message-id.
+- **Summary report** — every run prints which branches were built,
+  skipped, and failed (with the reason).
+
+See :doc:`maintainer/integrate` for details.
+
 .. _release-0.15:
 
 v0.15

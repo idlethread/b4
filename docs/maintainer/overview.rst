@@ -13,6 +13,11 @@ If you need to trace an already-applied commit back to its original
 mailing list submission, ``b4 dig`` can find it using patch-id or
 author/subject matching. See :doc:`dig` for details.
 
+If you maintain an integration tree assembled from several in-flight
+series, ``b4 integrate`` can rebuild a set of branches from a YAML file
+mapping branch names to message-ids, applying each series with ``b4
+shazam``. See :doc:`integrate` for details.
+
 B4 also provides a TUI-based review workflow (``b4 review``, currently
 in alpha) that lets you track, review, and act on incoming patch series
 from a single terminal interface. See :doc:`review` for details.
