@@ -32,7 +32,7 @@ def test_integrate_branch_success(monkeypatch):
     )
 
     dummy_args = argparse.Namespace(update_config=False)
-    res = integrate.integrate_branch(
+    res, had_conflict = integrate.integrate_branch(
         'test-branch',
         ['<id1>', '<id2>'],
         'HEAD',
@@ -40,6 +40,7 @@ def test_integrate_branch_success(monkeypatch):
     )
 
     assert res == ['<id1>', '<id2>']
+    assert had_conflict is False
     assert any('-B' in cmd for cmd in calls)
 
 
@@ -135,9 +136,10 @@ def test_integrate_branch_conflict_continue(monkeypatch):
     monkeypatch.setattr(integrate, 'handle_shazam_failure', lambda msgid: 'continue')
 
     dummy_args = argparse.Namespace(update_config=False)
-    res = integrate.integrate_branch('c', ['<id>'], 'HEAD', dummy_args)
+    res, had_conflict = integrate.integrate_branch('c', ['<id>'], 'HEAD', dummy_args)
     # 'continue' means the conflict was resolved by hand, so the id is kept.
     assert res == ['<id>']
+    assert had_conflict is True
 
 
 def test_integrate_branch_conflict_skip(monkeypatch):
@@ -151,9 +153,10 @@ def test_integrate_branch_conflict_skip(monkeypatch):
     monkeypatch.setattr(integrate, 'handle_shazam_failure', lambda msgid: 'skip')
 
     dummy_args = argparse.Namespace(update_config=False)
-    res = integrate.integrate_branch('c', ['<id1>', '<id2>'], 'HEAD', dummy_args)
+    res, had_conflict = integrate.integrate_branch('c', ['<id1>', '<id2>'], 'HEAD', dummy_args)
     # Both conflict and are skipped, so nothing is appended.
     assert res == []
+    assert had_conflict is False
 
 
 def test_integrate_branch_conflict_retry_then_success(monkeypatch):
@@ -172,8 +175,9 @@ def test_integrate_branch_conflict_retry_then_success(monkeypatch):
     monkeypatch.setattr(integrate, 'handle_shazam_failure', lambda msgid: 'retry')
 
     dummy_args = argparse.Namespace(update_config=False)
-    res = integrate.integrate_branch('c', ['<id>'], 'HEAD', dummy_args)
+    res, had_conflict = integrate.integrate_branch('c', ['<id>'], 'HEAD', dummy_args)
     assert res == ['<id>']
+    assert had_conflict is False
     assert attempts['<id>'] == 2
 
 
@@ -223,7 +227,7 @@ def test_run_integrate_merged_skipped_conflict(monkeypatch, tmp_path):
     integrate.run_integrate(args)
 
     assert captured['success'] == ['merged']
-    assert captured['skipped'] == ['skipped']
+    assert 'skipped' in captured['skipped']          # key in the skipped dict
     assert 'conflict' in captured['failed']
     # The conflict branch went through the interactive failure handler.
     assert handled == ['<bad>']
@@ -234,14 +238,21 @@ def test_run_integrate_merged_skipped_conflict(monkeypatch, tmp_path):
 def test_print_summary_reports_all_three(capsys):
     """print_summary surfaces merged, skipped, and conflict outcomes."""
     results = {
-        'success': ['merged'],
-        'skipped': ['skipped'],
-        'failed': {'conflict': 'shazam failed for <bad>'},
+        'success': ['clean-branch'],
+        'conflicts_resolved': ['conflict-branch'],
+        'skipped': {'skipped-branch': 'No message-ids specified'},
+        'failed': {'failed-branch': 'shazam failed for <bad>'},
     }
     integrate.print_summary(results)
     out = capsys.readouterr().out
 
+    assert 'clean-branch' in out
     assert 'merged' in out
-    assert 'skipped' in out
-    assert 'conflict' in out
+    assert 'conflict-branch' in out
+    assert 'conflict' in out                           # status column
+    assert 'skipped-branch' in out
+    assert 'skipped' in out                            # status column
+    assert 'No message-ids specified' in out           # reason in Notes
+    assert 'failed-branch' in out
+    assert 'FAILED' in out
     assert 'shazam failed for <bad>' in out
