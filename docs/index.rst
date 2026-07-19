@@ -27,6 +27,7 @@ For maintainers
    maintainer/am-shazam
    maintainer/diff
    maintainer/dig
+   maintainer/integrate
    maintainer/pr
    maintainer/ty
    maintainer/review
