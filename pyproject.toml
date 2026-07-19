@@ -27,6 +27,7 @@ dependencies = [
     "git-filter-repo>=2.30,<3.0",
     "dkimpy>=1.0,<2.0",
     "patatt>=0.6,<2.0",
+    "pyyaml>=5.1",
     "ezgb>=0.1",
     "liblore>=0.7",
 ]
@@ -38,6 +39,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "ruff",
+    "types-PyYAML",
     "types-requests",
 ]
 
