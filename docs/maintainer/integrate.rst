@@ -25,6 +25,13 @@ name to an ordered list of message-ids::
     docs:
       - <20260117-docs-series-v1-0-ghi@example.org>
 
+Each entry may be given either as a bare message-id or as a full
+lore.kernel.org URL -- for example, pasting
+``https://lore.kernel.org/all/<msgid>/`` (or a ``/r/`` or per-list link, with
+or without a trailing ``/T/#u`` thread anchor) works just as well as the bare
+``<msgid>``. b4 strips the lore prefix down to the raw message-id when it
+loads the file, so the two forms are interchangeable.
+
 Then point ``b4 integrate`` at it::
 
     $ b4 integrate series.yaml

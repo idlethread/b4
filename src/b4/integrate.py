@@ -9,8 +9,10 @@ __author__ = 'Amit Kucheria <amit.kucheria@oss.qualcomm.com>'
 
 import argparse
 import os
+import re
 import sys
 import traceback
+import urllib.parse
 
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, TypedDict, Union
@@ -125,11 +127,45 @@ def load_config(path: Union[str, Path]) -> Dict[str, List[str]]:
     if not isinstance(data, dict):
         raise RuntimeError('Top-level YAML must be a mapping')
 
-    for k, v in data.items():
-        if not isinstance(v, list):
-            raise RuntimeError(f'Branch {k} must map to a list of message-ids')
+    normalized: Dict[str, List[str]] = {}
+    for branch, msgids in data.items():
+        if not isinstance(msgids, list):
+            raise RuntimeError(f'Branch {branch} must map to a list of message-ids')
+        # Entries may be bare message-ids or full lore.kernel.org URLs; strip
+        # each down to a raw message-id so both forms work interchangeably.
+        normalized[branch] = [strip_lore_url(str(m)) for m in msgids]
 
-    return data
+    return normalized
+
+
+# Match a lore.kernel.org message URL and capture the message-id. The path is
+# https://lore.kernel.org/<list>/<msgid>/<optional thread anchors>, where the
+# optional <list> segment may also be 'all' or 'r'. Message-ids always contain
+# an '@' and never a '/', which lets us pick them out unambiguously.
+_LORE_URL_RE = re.compile(
+    r'^https?://lore\.kernel\.org/'
+    r'(?:[^/]+/)?'                       # optional list segment (all/, r/, <list>/)
+    r'(?P<msgid>[^/]+@[^/]+)'            # the message-id (no slashes, has an '@')
+    r'(?:/.*)?$',                        # optional trailing slash + thread anchors
+    re.IGNORECASE,
+)
+
+
+def strip_lore_url(entry: str) -> str:
+    """Normalise one config entry to a bare message-id.
+
+    Accepts a raw message-id (optionally angle-bracketed) or a full
+    lore.kernel.org URL such as ``https://lore.kernel.org/all/<msgid>/`` or
+    ``https://lore.kernel.org/<list>/<msgid>/T/#u`` and returns the bare
+    ``<msgid>``. Anything that is not a recognised lore URL is returned with
+    only surrounding whitespace and angle brackets removed, so unrelated
+    strings pass through unchanged.
+    """
+    s = entry.strip()
+    match = _LORE_URL_RE.match(s)
+    if match:
+        return urllib.parse.unquote(match.group('msgid'))
+    return s.strip('<>')
 
 
 def git_snapshot() -> Tuple[str, str]:

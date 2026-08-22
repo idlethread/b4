@@ -16,6 +16,47 @@ def test_load_config(tmp_path):
     assert loaded == cfg
 
 
+# ---------------------------------------------------------------------------
+# strip_lore_url: lore.kernel.org URLs are accepted as message-id aliases
+# ---------------------------------------------------------------------------
+
+def test_strip_lore_url_bare_msgid_unchanged():
+    mid = '20260219-msm-device-id-v1-1-9e7315a6fd20@oss.qualcomm.com'
+    assert integrate.strip_lore_url(mid) == mid
+
+
+def test_strip_lore_url_strips_angle_brackets():
+    assert integrate.strip_lore_url('<abc@example.org>') == 'abc@example.org'
+
+
+def test_strip_lore_url_list_variants():
+    mid = '20260215-anx-fix-v1-1-75172a5ca88b@oss.qualcomm.com'
+    for url in (
+        f'https://lore.kernel.org/all/{mid}/',
+        f'https://lore.kernel.org/r/{mid}',
+        f'https://lore.kernel.org/linux-arm-msm/{mid}/',
+        f'https://lore.kernel.org/linux-arm-msm/{mid}/T/#u',
+        f'http://lore.kernel.org/{mid}',
+    ):
+        assert integrate.strip_lore_url(url) == mid, url
+
+
+def test_strip_lore_url_non_lore_url_passes_through():
+    # A patchwork-style URL is not a lore URL; leave it for b4 to handle later.
+    other = 'https://patchwork.kernel.org/project/x/patch/foo@bar/'
+    assert integrate.strip_lore_url(other) == other
+
+
+def test_load_config_normalizes_lore_urls(tmp_path):
+    mid = '20260213101002.105238-1-r.mereu.kernel@arduino.cc'
+    cfg = {'unoq': [f'https://lore.kernel.org/all/{mid}/', f'<{mid}>']}
+    p = tmp_path / 'cfg.yaml'
+    p.write_text(yaml.safe_dump(cfg))
+
+    loaded = integrate.load_config(p)
+    assert loaded == {'unoq': [mid, mid]}
+
+
 def test_integrate_branch_success(monkeypatch):
     calls = []
 
@@ -252,9 +293,9 @@ def test_integrate_branch_conflict_retry_then_success(monkeypatch):
 def test_run_integrate_merged_skipped_conflict(monkeypatch, tmp_path):
     """run_integrate classifies branches into success / skipped / failed."""
     cfg = {
-        'merged': ['<ok1>', '<ok2>'],  # applies cleanly -> success
-        'skipped': [],                 # no msgids -> skipped
-        'conflict': ['<bad>'],         # shazam fails, user aborts -> failed
+        'merged': ['ok1', 'ok2'],  # applies cleanly -> success
+        'skipped': [],             # no msgids -> skipped
+        'conflict': ['bad'],       # shazam fails, user aborts -> failed
     }
     p = tmp_path / 'series.yaml'
     p.write_text(yaml.safe_dump(cfg, sort_keys=False))
@@ -269,7 +310,7 @@ def test_run_integrate_merged_skipped_conflict(monkeypatch, tmp_path):
     )
 
     def fake_shazam(msgid):
-        if msgid == '<bad>':
+        if msgid == 'bad':
             raise RuntimeError('conflict')
 
     monkeypatch.setattr(integrate, 'run_shazam_for_msgid', fake_shazam)
@@ -296,7 +337,7 @@ def test_run_integrate_merged_skipped_conflict(monkeypatch, tmp_path):
     assert 'skipped' in captured['skipped']          # key in the skipped dict
     assert 'conflict' in captured['failed']
     # The conflict branch went through the interactive failure handler.
-    assert handled == ['<bad>']
+    assert handled == ['bad']
     # git state is restored once per branch (in the finally clause).
     assert len(restore_calls) == len(cfg)
 
