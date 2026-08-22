@@ -131,6 +131,88 @@ def test_write_updated_config(tmp_path):
     assert updated['b'] == ['old2']
 
 
+def test_write_updated_config_preserves_comments(tmp_path):
+    """Rewriting must keep the '# title — author' comments and formatting."""
+    content = (
+        '# generated file, do not hand-edit lightly\n'
+        'glymur:\n'
+        '  # arm64: dts: qcom: add glymur — Jane Dev <jane@example.org>\n'
+        '  - 20260101-glymur-v1-0-aaaa@example.org\n'
+        '  # power: add rpmh regulators — John Rev <john@example.org>\n'
+        '  - 20260102-rpmh-v2-0-bbbb@example.org\n'
+        '\n'
+        'hamoa:\n'
+        '  - 20260103-hamoa-v1-0-cccc@example.org\n'
+    )
+    p = tmp_path / 'series.yaml'
+    p.write_text(content)
+
+    old = {
+        'glymur': ['20260101-glymur-v1-0-aaaa@example.org',
+                   '20260102-rpmh-v2-0-bbbb@example.org'],
+        'hamoa': ['20260103-hamoa-v1-0-cccc@example.org'],
+    }
+    new = {
+        # only the second glymur entry was rerolled
+        'glymur': ['20260101-glymur-v1-0-aaaa@example.org',
+                   '20260115-rpmh-v3-0-dddd@example.org'],
+        'hamoa': ['20260103-hamoa-v1-0-cccc@example.org'],
+    }
+
+    integrate.write_updated_config(p, old, new)
+    result = p.read_text()
+
+    # Comments survive verbatim.
+    assert '# arm64: dts: qcom: add glymur — Jane Dev <jane@example.org>' in result
+    assert '# power: add rpmh regulators — John Rev <john@example.org>' in result
+    assert '# generated file, do not hand-edit lightly' in result
+    # The blank line between the two branches survives.
+    assert '\n\nhamoa:' in result
+    # The changed id was swapped, the unchanged ones left alone.
+    assert '20260115-rpmh-v3-0-dddd@example.org' in result
+    assert '20260102-rpmh-v2-0-bbbb@example.org' not in result
+    assert '20260101-glymur-v1-0-aaaa@example.org' in result
+    # And the file still parses to the expected structure.
+    assert yaml.safe_load(result) == new
+
+
+def test_write_updated_config_preserves_quotes(tmp_path):
+    """A quoted value keeps its quotes when only the id inside changes."""
+    content = 'b:\n  - "old@example.org"\n'
+    p = tmp_path / 'series.yaml'
+    p.write_text(content)
+
+    integrate.write_updated_config(
+        p, {'b': ['old@example.org']}, {'b': ['new@example.org']})
+    result = p.read_text()
+    assert result == 'b:\n  - "new@example.org"\n'
+
+
+def test_write_updated_config_only_untouched_branch_not_rewritten(tmp_path):
+    """A branch absent from new_cfg (e.g. skipped by --only) is left verbatim."""
+    content = (
+        'a:\n'
+        '  # keep me — Someone <s@example.org>\n'
+        '  - keep@example.org\n'
+        'b:\n'
+        '  - old@example.org\n'
+    )
+    p = tmp_path / 'series.yaml'
+    p.write_text(content)
+
+    # new_cfg only carries 'b'; 'a' must be preserved comment and all.
+    integrate.write_updated_config(
+        p,
+        {'a': ['keep@example.org'], 'b': ['old@example.org']},
+        {'b': ['new@example.org']},
+    )
+    result = p.read_text()
+    assert '# keep me — Someone <s@example.org>' in result
+    assert 'keep@example.org' in result
+    assert 'new@example.org' in result
+    assert 'old@example.org' not in result
+
+
 # ---------------------------------------------------------------------------
 # --only BRANCH: repeatable branch filter (select_branches)
 # ---------------------------------------------------------------------------

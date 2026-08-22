@@ -113,8 +113,13 @@ of that series and, if a newer one exists, records its message-id.
 
 At the end of the run b4 rewrites the YAML file in place with the newer
 message-ids, matching entries by branch name and preserving branch order.
-The rewrite is atomic (b4 writes a ``.new`` file and renames it over the
-original), and if no newer revisions were found the file is left untouched::
+The rewrite is line-wise rather than a full YAML dump: only the value on a
+list-item line whose message-id actually changed is edited, so any comments
+you keep in the file -- for example a ``# <series title> — <author>`` line
+above each entry -- survive untouched, along with blank lines and quoting
+style. The rewrite is atomic (b4 writes a ``.new`` file and renames it over
+the original), and if no newer revisions were found the file is left
+untouched::
 
     $ b4 integrate series.yaml --update-config
     ...

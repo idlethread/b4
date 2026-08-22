@@ -317,26 +317,81 @@ def handle_shazam_failure(msgid: str) -> str:
 
 def write_updated_config(path: Union[str, Path], old_cfg: Dict[str, List[str]],
                         new_cfg: Dict[str, List[str]]) -> None:
-    merged: Dict[str, List[str]] = {}
-    changed = False
-    for branch, old_ids in old_cfg.items():
-        new_ids = new_cfg.get(branch, old_ids)
-        merged[branch] = new_ids
-        for old, new in zip(old_ids, new_ids):
-            if old != new:
-                logger.info('  %s: %s -> %s', branch, old, new)
-                changed = True
+    """Rewrite the YAML file in place, updating only the changed message-ids.
 
-    if not changed:
+    The rewrite is line-wise rather than a full ``yaml.safe_dump`` so that
+    hand-authored structure survives untouched -- in particular the
+    ``# <series title> — <author>`` comment kept above each entry, plus blank
+    lines, quoting style and key order. Only the value on a list-item line
+    whose message-id actually changed is edited; every other byte is copied
+    verbatim.
+    """
+    # Positional map of edits: branch -> {list-index: (old_msgid, new_msgid)}.
+    changes: Dict[str, Dict[int, Tuple[str, str]]] = {}
+    for branch, old_ids in old_cfg.items():
+        new_ids = new_cfg.get(branch)
+        if new_ids is None:
+            continue  # branch was not processed this run (e.g. --only); leave it
+        for idx, (old, new) in enumerate(zip(old_ids, new_ids)):
+            if old != new:
+                changes.setdefault(branch, {})[idx] = (old, new)
+                logger.info('  %s: %s -> %s', branch, old, new)
+
+    if not changes:
         logger.info('No message-id updates detected')
         return
 
+    with open(path, encoding='utf-8') as f:
+        lines = f.readlines()
+
+    new_lines = _rewrite_config_lines(lines, changes)
+
     tmp = f'{path}.new'
     with open(tmp, 'w', encoding='utf-8') as f:
-        yaml.safe_dump(merged, f, sort_keys=False)
+        f.writelines(new_lines)
 
     os.replace(tmp, path)
     logger.info('Updated %s', path)
+
+
+# A top-level mapping key (branch name) sits at column 0 and ends in ':',
+# optionally trailed by a comment. A list item is an indented '- <value>'.
+_KEY_RE = re.compile(r'^(?P<key>[^\s#][^:]*):\s*(?:#.*)?$')
+_ITEM_RE = re.compile(r'^\s*-\s+\S')
+
+
+def _rewrite_config_lines(lines: List[str],
+                          changes: Dict[str, Dict[int, Tuple[str, str]]]) -> List[str]:
+    out: List[str] = []
+    branch: Optional[str] = None
+    idx = 0
+    for line in lines:
+        key_match = _KEY_RE.match(line)
+        if key_match:
+            branch = key_match.group('key')
+            idx = 0
+            out.append(line)
+            continue
+
+        if branch is not None and _ITEM_RE.match(line):
+            edit = changes.get(branch, {}).get(idx)
+            if edit is not None:
+                old, new = edit
+                if old in line:
+                    line = line.replace(old, new, 1)
+                else:
+                    logger.warning(
+                        'Could not find %s on its line under %s; leaving as-is',
+                        old, branch)
+            idx += 1
+            out.append(line)
+            continue
+
+        # Comments, blank lines, and anything else pass through unchanged and
+        # do not advance the list-item index.
+        out.append(line)
+
+    return out
 
 
 def print_summary(results: IntegrationResults) -> None:
