@@ -50,8 +50,14 @@ def run_integrate(cmdargs: argparse.Namespace) -> None:
     base = cmdargs.base
     update_config = cmdargs.update_config
 
-    cfg = load_config(yaml_path)
-    logger.debug('Loaded config: %s', cfg)
+    full_cfg = load_config(yaml_path)
+    logger.debug('Loaded config: %s', full_cfg)
+
+    # --update-config rewrites the file in place, so it must see every branch --
+    # even the ones a --only run does not touch -- or they would be dropped.
+    # We therefore process a filtered view but always hand the full config to
+    # write_updated_config().
+    cfg = select_branches(full_cfg, getattr(cmdargs, 'only', None))
 
     orig_branch, orig_commit = git_snapshot()
 
@@ -86,7 +92,30 @@ def run_integrate(cmdargs: argparse.Namespace) -> None:
     print_summary(results)
 
     if update_config:
-        write_updated_config(yaml_path, cfg, updated_cfg)
+        write_updated_config(yaml_path, full_cfg, updated_cfg)
+
+
+def select_branches(cfg: Dict[str, List[str]],
+                    only: Optional[List[str]]) -> Dict[str, List[str]]:
+    """Return the branches to process, honouring a repeatable --only filter.
+
+    Without --only the whole config is returned. With --only, only the named
+    branches are kept, in the config's own order; names that do not exist in
+    the config are warned about and ignored.
+    """
+    if not only:
+        return cfg
+
+    wanted = list(dict.fromkeys(only))  # dedupe, keep first-seen order
+    for name in wanted:
+        if name not in cfg:
+            logger.warning('--only %s: no such branch in the config; ignoring', name)
+
+    keep = set(wanted)
+    selected = {branch: msgids for branch, msgids in cfg.items() if branch in keep}
+    if not selected:
+        logger.warning('--only matched no branches; nothing to process')
+    return selected
 
 
 def load_config(path: Union[str, Path]) -> Dict[str, List[str]]:

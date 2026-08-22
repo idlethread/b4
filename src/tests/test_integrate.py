@@ -91,6 +91,72 @@ def test_write_updated_config(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# --only BRANCH: repeatable branch filter (select_branches)
+# ---------------------------------------------------------------------------
+
+def test_select_branches_no_filter_returns_all():
+    cfg = {'a': ['<1>'], 'b': ['<2>']}
+    assert integrate.select_branches(cfg, None) is cfg
+    assert integrate.select_branches(cfg, []) is cfg
+
+
+def test_select_branches_keeps_only_named_in_config_order():
+    cfg = {'a': ['<1>'], 'b': ['<2>'], 'c': ['<3>']}
+    # Order of the filter must not matter; config order is preserved.
+    got = integrate.select_branches(cfg, ['c', 'a'])
+    assert list(got.keys()) == ['a', 'c']
+    assert got == {'a': ['<1>'], 'c': ['<3>']}
+
+
+def test_select_branches_dedupes_and_warns_on_unknown(caplog):
+    cfg = {'a': ['<1>']}
+    got = integrate.select_branches(cfg, ['a', 'a', 'missing'])
+    assert got == {'a': ['<1>']}
+    assert 'missing' in caplog.text
+
+
+def test_run_integrate_only_preserves_untouched_branches_on_update(monkeypatch, tmp_path):
+    """--only processes a subset but --update-config must keep the rest."""
+    cfg = {
+        'keep-me': ['<untouched>'],
+        'process-me': ['<applied>'],
+    }
+    p = tmp_path / 'series.yaml'
+    p.write_text(yaml.safe_dump(cfg, sort_keys=False))
+
+    _quiet_git(monkeypatch)
+    monkeypatch.setattr(integrate, 'git_snapshot', lambda: ('main', 'abc1234'))
+    monkeypatch.setattr(integrate, 'git_restore', lambda branch, commit: None)
+    monkeypatch.setattr(integrate, 'run_shazam_for_msgid', lambda msgid: None)
+    monkeypatch.setattr(integrate, 'resolve_latest_msgid', lambda msgid: msgid)
+    monkeypatch.setattr(integrate, 'print_summary', lambda results: None)
+
+    processed = []
+    real_integrate_branch = integrate.integrate_branch
+
+    def spy(branch, msgids, base, cmdargs):
+        processed.append(branch)
+        return real_integrate_branch(branch, msgids, base, cmdargs)
+
+    monkeypatch.setattr(integrate, 'integrate_branch', spy)
+
+    args = argparse.Namespace(
+        yaml_file=str(p),
+        base='HEAD',
+        update_config=True,
+        only=['process-me'],
+    )
+    integrate.run_integrate(args)
+
+    # Only the requested branch was built ...
+    assert processed == ['process-me']
+    # ... but the rewritten file still carries the untouched branch verbatim.
+    written = yaml.safe_load(p.read_text())
+    assert written['keep-me'] == ['<untouched>']
+    assert 'process-me' in written
+
+
+# ---------------------------------------------------------------------------
 # Topic-integration feature cases: merged, skipped, and conflict.
 #
 # These exercise the per-branch apply loop (integrate_branch) and the

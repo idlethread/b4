@@ -156,6 +156,15 @@ Options
   the public-inbox server and rewrite the YAML file in place with any newer
   message-ids. Without this flag the YAML file is never modified.
 
+``--only BRANCH``
+  Process only the named branch instead of every branch in the file. The
+  option is repeatable (``--only a --only b``) and branch names that do not
+  appear in the config are warned about and ignored. Branches are still
+  processed in the order they appear in the YAML file, not in the order the
+  ``--only`` flags are given. When combined with ``--update-config``, the
+  branches you did *not* select are left untouched in the rewritten file, so
+  it is safe to refresh one branch at a time.
+
 Examples
 --------
 Rebuild all branches described in a config file on top of the current
@@ -171,3 +180,7 @@ Rebuild the branches and refresh the YAML file to point at the latest
 revisions of each series::
 
     $ b4 integrate series.yaml --update-config
+
+Rebuild just one branch out of a larger file (repeat ``--only`` for more)::
+
+    $ b4 integrate series.yaml --only glymur

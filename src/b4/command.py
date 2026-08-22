@@ -695,6 +695,9 @@ def setup_parser() -> argparse.ArgumentParser:
         help='Base git ref for new branches (default: HEAD)')
     sp_integrate.add_argument('--update-config', action='store_true', default=False,
         help='Check for newer patch revisions and update the YAML file with their message-ids')
+    sp_integrate.add_argument('--only', metavar='BRANCH', action='append', default=None,
+        help='Only process the named branch (repeatable); other branches in the '
+             'YAML are left untouched, including on --update-config rewrites')
     sp_integrate.set_defaults(func=cmd_integrate)
 
     # b4 pr
