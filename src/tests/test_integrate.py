@@ -370,6 +370,92 @@ def test_integrate_branch_conflict_retry_then_success(monkeypatch):
     assert attempts['<id>'] == 2
 
 
+# ---------------------------------------------------------------------------
+# --compile-test CMD: run a command once per built branch, fail on non-zero
+# ---------------------------------------------------------------------------
+
+class _FakeProc:
+    def __init__(self, returncode):
+        self.returncode = returncode
+
+
+def test_run_compile_test_pass(monkeypatch):
+    """A zero exit returns quietly and exports B4_BRANCH to the command."""
+    captured = {}
+
+    def fake_run(cmd, shell, env):
+        captured['cmd'] = cmd
+        captured['shell'] = shell
+        captured['branch'] = env.get('B4_BRANCH')
+        return _FakeProc(0)
+
+    monkeypatch.setattr(integrate.subprocess, 'run', fake_run)
+    integrate.run_compile_test('make', 'glymur')
+
+    assert captured['cmd'] == 'make'
+    assert captured['shell'] is True
+    assert captured['branch'] == 'glymur'
+
+
+def test_run_compile_test_nonzero_raises(monkeypatch):
+    """A non-zero exit raises RuntimeError naming the branch."""
+    monkeypatch.setattr(integrate.subprocess, 'run',
+                        lambda cmd, shell, env: _FakeProc(2))
+    try:
+        integrate.run_compile_test('false', 'hamoa')
+        assert False, 'Expected RuntimeError'
+    except RuntimeError as ex:
+        assert 'hamoa' in str(ex)
+
+
+def test_integrate_branch_compile_test_pass(monkeypatch):
+    """compile-test passing leaves the built branch intact."""
+    _quiet_git(monkeypatch)
+    monkeypatch.setattr(integrate, 'run_shazam_for_msgid', lambda msgid: None)
+
+    called = {}
+    monkeypatch.setattr(integrate, 'run_compile_test',
+                        lambda cmd, branch: called.update(cmd=cmd, branch=branch))
+
+    args = argparse.Namespace(update_config=False, compile_test='make')
+    res, had_conflict = integrate.integrate_branch('b', ['<id>'], 'HEAD', args)
+
+    assert res == ['<id>']
+    assert had_conflict is False
+    assert called == {'cmd': 'make', 'branch': 'b'}
+
+
+def test_integrate_branch_compile_test_fail_bubbles(monkeypatch):
+    """A compile-test failure propagates so the branch is bucketed failed."""
+    _quiet_git(monkeypatch)
+    monkeypatch.setattr(integrate, 'run_shazam_for_msgid', lambda msgid: None)
+    monkeypatch.setattr(
+        integrate, 'run_compile_test',
+        lambda cmd, branch: (_ for _ in ()).throw(RuntimeError('compile-test failed')),
+    )
+
+    args = argparse.Namespace(update_config=False, compile_test='make')
+    try:
+        integrate.integrate_branch('b', ['<id>'], 'HEAD', args)
+        assert False, 'Expected RuntimeError'
+    except RuntimeError as ex:
+        assert 'compile-test failed' in str(ex)
+
+
+def test_integrate_branch_no_compile_test_skips_run(monkeypatch):
+    """Without --compile-test, run_compile_test is never called."""
+    _quiet_git(monkeypatch)
+    monkeypatch.setattr(integrate, 'run_shazam_for_msgid', lambda msgid: None)
+    monkeypatch.setattr(
+        integrate, 'run_compile_test',
+        lambda cmd, branch: (_ for _ in ()).throw(AssertionError('should not run')),
+    )
+
+    args = argparse.Namespace(update_config=False, compile_test=None)
+    res, _ = integrate.integrate_branch('b', ['<id>'], 'HEAD', args)
+    assert res == ['<id>']
+
+
 # --- end-to-end orchestration: all three outcomes in one run ---------------
 
 def test_run_integrate_merged_skipped_conflict(monkeypatch, tmp_path):

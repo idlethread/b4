@@ -698,6 +698,9 @@ def setup_parser() -> argparse.ArgumentParser:
     sp_integrate.add_argument('--only', metavar='BRANCH', action='append', default=None,
         help='Only process the named branch (repeatable); other branches in the '
              'YAML are left untouched, including on --update-config rewrites')
+    sp_integrate.add_argument('--compile-test', metavar='CMD', default=None,
+        help='Shell command run once after a branch is built, with $B4_BRANCH set '
+             'to the branch name; a non-zero exit fails that branch')
     sp_integrate.set_defaults(func=cmd_integrate)
 
     # b4 pr

@@ -104,6 +104,28 @@ When b4 is run without an interactive terminal, an apply failure aborts the
 current branch (equivalent to ``[a]``) rather than blocking on input, so
 the branch is bucketed as failed and the run continues.
 
+Compile-testing each branch with ``--compile-test``
+---------------------------------------------------
+A branch that applies cleanly can still fail to build once several series are
+stacked on top of one another. Pass ``--compile-test CMD`` to run a shell
+command once after each branch is fully built; a non-zero exit fails that
+branch (it is bucketed with the apply failures in the summary) while the run
+continues with the next branch::
+
+    $ b4 integrate series.yaml --compile-test 'make -j$(nproc)'
+
+The command runs through the shell, so pipelines, ``&&`` chains, and shell
+variables all work. b4 exports the name of the branch being built as
+``$B4_BRANCH`` in the command's environment, which lets a single command
+select the right configuration per branch -- for example choosing a board
+defconfig keyed off the branch name::
+
+    $ b4 integrate boards.yaml --compile-test './ci/build-board.sh "$B4_BRANCH"'
+
+The compile-test runs after the whole branch is assembled, not after every
+individual patch, so it verifies the final integrated tree. As with any other
+failure, the working tree is restored to its original snapshot afterwards.
+
 Keeping the YAML up to date with ``--update-config``
 ----------------------------------------------------
 Series get rerolled, and the message-id in your YAML file eventually points
@@ -168,6 +190,12 @@ Options
   the public-inbox server and rewrite the YAML file in place with any newer
   message-ids. Without this flag the YAML file is never modified.
 
+``--compile-test CMD``
+  Shell command run once after each branch is built, with the branch name
+  exported as ``$B4_BRANCH``. A non-zero exit fails that branch (bucketed with
+  the apply failures) and the run moves on to the next branch. Useful for
+  confirming the integrated tree actually compiles.
+
 ``--only BRANCH``
   Process only the named branch instead of every branch in the file. The
   option is repeatable (``--only a --only b``) and branch names that do not
@@ -196,3 +224,8 @@ revisions of each series::
 Rebuild just one branch out of a larger file (repeat ``--only`` for more)::
 
     $ b4 integrate series.yaml --only glymur
+
+Rebuild every branch and compile-test each one, selecting a board defconfig
+from the branch name::
+
+    $ b4 integrate boards.yaml --compile-test './ci/build-board.sh "$B4_BRANCH"'

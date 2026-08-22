@@ -10,6 +10,7 @@ __author__ = 'Amit Kucheria <amit.kucheria@oss.qualcomm.com>'
 import argparse
 import os
 import re
+import subprocess
 import sys
 import traceback
 import urllib.parse
@@ -234,7 +235,29 @@ def integrate_branch(branch: str, msgids: List[str], base: str,
                 # action == 'abort': bubble up so the branch lands in 'failed'.
                 raise
 
+    # The branch is now fully built; optionally verify it compiles. A failure
+    # here raises RuntimeError, so the branch is bucketed as failed like any
+    # other apply failure.
+    compile_test = getattr(cmdargs, 'compile_test', None)
+    if compile_test:
+        run_compile_test(compile_test, branch)
+
     return resolved, had_conflict
+
+
+def run_compile_test(cmd: str, branch: str) -> None:
+    """Run the compile-test command for a freshly built branch.
+
+    The branch name is exported as ``B4_BRANCH`` so the command can pick, for
+    example, the matching board config. The command runs through the shell; a
+    non-zero exit raises RuntimeError, which buckets the branch as failed.
+    """
+    logger.info('Running compile-test for %s: %s', branch, cmd)
+    env = dict(os.environ, B4_BRANCH=branch)
+    result = subprocess.run(cmd, shell=True, env=env)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f'compile-test failed for {branch} (exit {result.returncode})')
 
 
 def resolve_latest_msgid(msgid: str) -> str:
